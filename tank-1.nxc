@@ -1,0 +1,103 @@
+/**
+ * Tank-1
+ * Instructs the tank to move forward avoiding obstacles
+ *
+ */
+
+/**
+ * preprocessing
+ */
+#define SONAR_MOTOR OUT_A
+
+/**
+ * constants
+ */
+const char OFF = 0;
+const char ON  = 1;
+
+/**
+ * structures
+ */
+struct stMotor {
+  char direction;
+  char power;
+  char status;
+  bool reverseDirection;
+  byte avoidObstacleDistance;
+};
+
+struct stSonar {
+  stMotor motor;
+  char nextReadDelay;
+  char status;
+};
+
+/**
+ * global variables
+ */
+stSonar sonar;
+
+/**
+ * Setup control variables
+ */
+void setup(){
+  // sonar
+  sonar.status = ON;                // ON | OFF
+  sonar.nextReadDelay = 15;         // ms
+  sonar.avoidObstacleDistance = 50; // cm
+  // sonar motor
+  sonar.motor.status = ON;
+  sonar.motor.direction = 1;        // 1 | -1 | 0
+  sonar.motor.power = 50;           // {0, 100}
+}
+
+/**
+ * Keeps the sonar motor rotating between -90 and 90 degrees
+ * It also allows the program to reverse is direction by updating sonar.motor.reverseDirection attribute
+ */
+task sonarMotorTask(){
+  long currentAngle;
+
+
+  while(sonar.motor.status == ON){
+    currentAngle = MotorRotationCount(SONAR_MOTOR);
+
+    if(abs(currentAngle) >= 90) {
+      sonar.motor.reverseDirection = true;
+    }
+
+    if(sonar.motor.reverseDirection){
+      sonar.motor.direction = -(sonar.motor.direction);
+      if(sonar.motor.direction == 1){
+        OnFwd(SONAR_MOTOR, sonar.motor.power);
+      } else {
+        OnRev(SONAR_MOTOR, sonar.motor.power);
+      }
+      sonar.motor.reverseDirection = false;
+    }
+  }
+}
+
+/**
+ * Avoid objects at a secure range and tries to keep the robot running
+ */
+task sonarTask(){
+  byte distanceCm; // max = 2,5 meters
+
+  while(sonar.status == ON){
+    Wait(sonar.nextReadDelay);
+    distanceCm = SensorUS(S4);
+    if(distanceCm <= sonar.avoidObstacleDistance){
+      
+    }
+  }
+  
+}
+
+/**
+ * Main task
+ */
+task main(){
+  setup();
+  Precedes(sonarMotorTask, sonarTask);
+}
