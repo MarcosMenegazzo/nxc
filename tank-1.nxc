@@ -8,6 +8,8 @@
  * preprocessing
  */
 #define SONAR_MOTOR OUT_A
+#define SONAR_PORT S4
+#define TOUCH_PORT S1
 
 /**
  * constants
@@ -23,58 +25,55 @@ struct stMotor {
   char power;
   char status;
   bool reverseDirection;
-  byte avoidObstacleDistance;
 };
 
 struct stSonar {
   stMotor motor;
   char nextReadDelay;
   char status;
+  long scanAngle;
+  unsigned char avoidObstacleDistance;
+};
+
+struct stTank {
+  char power;
 };
 
 /**
  * global variables
  */
 stSonar sonar;
+stTank tank;
 
 /**
  * Setup control variables
  */
 void setup(){
+  // matTank
+  tank.power = 0;
   // sonar
   sonar.status = ON;                // ON | OFF
   sonar.nextReadDelay = 15;         // ms
   sonar.avoidObstacleDistance = 50; // cm
+  sonar.scanAngle = 360;
   // sonar motor
   sonar.motor.status = ON;
   sonar.motor.direction = 1;        // 1 | -1 | 0
-  sonar.motor.power = 50;           // {0, 100}
+  sonar.motor.power = 25;           // {0, 100}
+  // hardware
+  SetSensorLowspeed(SONAR_PORT);
+  SetSensorTouch(TOUCH_PORT);
 }
 
 /**
- * Keeps the sonar motor rotating between -90 and 90 degrees
+ * Keeps the sonar motor rotating to scan obstacles
  * It also allows the program to reverse is direction by updating sonar.motor.reverseDirection attribute
  */
 task sonarMotorTask(){
-  long currentAngle;
-
-
+  RotateMotor(SONAR_MOTOR, sonar.motor.power, sonar.scanAngle);
   while(sonar.motor.status == ON){
-    currentAngle = MotorRotationCount(SONAR_MOTOR);
-
-    if(abs(currentAngle) >= 90) {
-      sonar.motor.reverseDirection = true;
-    }
-
-    if(sonar.motor.reverseDirection){
-      sonar.motor.direction = -(sonar.motor.direction);
-      if(sonar.motor.direction == 1){
-        OnFwd(SONAR_MOTOR, sonar.motor.power);
-      } else {
-        OnRev(SONAR_MOTOR, sonar.motor.power);
-      }
-      sonar.motor.reverseDirection = false;
-    }
+    RotateMotor(SONAR_MOTOR, sonar.motor.power, -2 * sonar.scanAngle);
+    RotateMotor(SONAR_MOTOR, sonar.motor.power, 2 * sonar.scanAngle);
   }
 }
 
@@ -82,16 +81,31 @@ task sonarMotorTask(){
  * Avoid objects at a secure range and tries to keep the robot running
  */
 task sonarTask(){
-  byte distanceCm; // max = 2,5 meters
-
+  unsigned char distanceCm; // max = 2,5 meters
   while(sonar.status == ON){
     Wait(sonar.nextReadDelay);
-    distanceCm = SensorUS(S4);
-    if(distanceCm <= sonar.avoidObstacleDistance){
+    distanceCm = SensorUS(SONAR_PORT);
+    if (distanceCm <= sonar.avoidObstacleDistance){
       
     }
   }
-  
+}
+
+/**
+ *
+ */
+task tankMatTask(){
+  int button;
+  while(sonar.status == ON){
+    button = getchar();
+    if (button == BTNRIGHT && tank.power <= 75) {
+      tank.power += 25;
+    }
+    if (button == BTNLEFT && tank.power >= 25) {
+      tank.power -= 25;
+    }
+    OnFwdSync(OUT_BC, tank.power, 0);
+  }
 }
 
 /**
@@ -99,5 +113,5 @@ task sonarTask(){
  */
 task main(){
   setup();
-  Precedes(sonarMotorTask, sonarTask);
+  Precedes(tankMatTask);
 }
