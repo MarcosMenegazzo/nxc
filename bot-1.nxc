@@ -1,0 +1,166 @@
+/**
+ * Bot-1
+ * Avoid walls
+ *
+ */
+
+/**
+ * preprocessing
+ */
+#define SONAR_MOTOR OUT_A
+#define TOUCH_PORT S1
+#define SONAR_PORT S2
+#define LIGHT_PORT S3
+#define SOUND_PORT S4
+
+/**
+ * constants
+ */
+const char OFF = 0;
+const char ON  = 1;
+const char PWR_STEP = 10;
+const char ACTION_WALK = 0;
+const char ACTION_REVERSE_FROM_BUMP = 1;
+const char ACTION_REVERSE_FROM_SONAR = 2;
+
+/**
+ * structures
+ */
+struct stBot {
+  char action;
+  char power;
+  char revPower;
+  char status;
+  char nextReadDelay;
+  unsigned char avoidObstacleDistance;
+};
+
+/**
+ * global variables
+ */
+stBot bot;
+
+/**
+ * Setup control variables
+ */
+void setup(){
+  bot.action = ACTION_WALK;
+  bot.power = 50;
+  bot.revPower = 50;
+  bot.status = ON;                // ON | OFF
+  bot.nextReadDelay = 30;         // ms
+  bot.avoidObstacleDistance = 30; // cm
+  // hardware
+  SetSensorLowspeed(SONAR_PORT);
+  SetSensorTouch(TOUCH_PORT);
+  SetSensorSound(SOUND_PORT);
+  SetSensorLight(LIGHT_PORT);
+}
+
+/**
+ * Tries to detect a sound, not used right now
+ */
+task soundTask(){
+  unsigned int intensity;
+  while(bot.status == ON){
+    Wait(bot.nextReadDelay);
+    intensity = SensorValue(SOUND_PORT);
+    if (intensity > 50) {
+      // do nothing
+    }
+    // debug
+    string msg = FormatNum("Sound = %03d", intensity);
+    TextOut(0, LCD_LINE1, msg);
+  }
+}
+
+/**
+ *
+ */
+task walkTask(){
+  unsigned char distanceCm; // max = 2,5 meters
+  while(bot.status == ON){
+    switch(bot.action){
+      case ACTION_WALK;
+        OnFwdSync(OUT_BC, bot.power, 0);
+        break;
+      case ACTION_REVERSE_FROM_BUMP;
+        CoastEx(OUT_BC, RESET_ALL);
+        RotateMotor(OUT_B, bot.revPower, -60);
+        RotateMotor(OUT_C, bot.revPower, -60);
+        RotateMotor(OUT_B, bot.revPower, -60);
+        RotateMotor(OUT_C, bot.revPower, -60);
+        RotateMotor(OUT_B, bot.revPower, -60);
+        RotateMotor(OUT_C, bot.revPower, -60);
+        bot.action = ACTION_WALK;
+        break;
+      case ACTION_REVERSE_FROM_SONAR;
+        CoastEx(OUT_BC, RESET_ALL);
+        RotateMotor(OUT_B, bot.power, -90);
+        RotateMotor(OUT_C, bot.power, 720);
+        RotateMotor(OUT_B, bot.power, 90);
+        bot.action = ACTION_WALK;
+    }
+  }
+}
+
+/**
+ *
+ */
+task speedTask(){
+  int button;
+  while(bot.status == ON){
+    button = getchar();
+    if (button == BTNRIGHT && bot.power < 100) {
+      bot.power += PWR_STEP;
+    }
+    if (button == BTNLEFT && bot.power > 0) {
+      bot.power -= PWR_STEP;
+    }
+    // debug
+    string msg = FormatNum("Speed = %03d", bot.power);
+    TextOut(0, LCD_LINE3, msg);
+  }
+}
+
+/**
+ *
+ */
+task bumperTask(){
+  bool pressed;
+  while(bot.status == ON){
+    pressed = SensorBoolean(TOUCH_PORT);
+    if (pressed && bot.action == ACTION_WALK) {
+      bot.action = REVERSE_FROM_BUMP;
+    }
+    // debug
+    string msg = FormatNum("Bumper = %d", pressed);
+    TextOut(0, LCD_LINE4, msg);
+  }
+}
+
+/**
+ *
+ */
+task sonarTask(){
+  unsigned char distanceCm; // max = 2,5 meters
+  while(bot.status == ON){
+    Wait(bot.nextReadDelay);
+    distanceCm = SensorUS(SONAR_PORT);
+    if (distanceCm <= bot.avoidObstacleDistance && bot.action == ACTION_WALK){
+      bot.action = REVERSE_FROM_SONAR;
+    }
+    // debug
+    string msg = FormatNum("Distance = %03d", distanceCm);
+    TextOut(0, LCD_LINE2, msg);
+  }
+}
+
+
+/**
+ * Main task
+ */
+task main(){
+  setup();
+  Precedes(walkTask, speedTask, sonarTask, bumperTask);
+}
