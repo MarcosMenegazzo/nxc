@@ -1,0 +1,290 @@
+/**
+ * Bot-1
+ * Avoid walls using the ultrasonic and touch sensors
+ * Follows a black line in the ground (if it found one, of course)
+ */
+
+/**
+ * preprocessing
+ */
+#define SONAR_MOTOR OUT_A
+
+#define TOUCH_PORT S1
+#define SOUND_PORT S2
+#define LIGHT_PORT S3
+#define SONAR_PORT S4
+
+#define ACT_WALK 0
+#define ACT_REV_BUMP 1
+#define ACT_REV_SONAR 2
+#define ACT_FOLLOW 2
+
+#define OFF 0
+#define ON  1
+#define PWR_STEP 10
+
+/**
+ * our bot
+ */
+struct stBot {
+  int  action;
+  char power;
+  char status;
+  char nextReadDelay;
+  unsigned char avoidObstacleDistance;
+  int turnBackRotation;
+};
+
+/**
+ * Sensor data
+ */
+struct stSensorData {
+  int button;
+  unsigned char distanceCm;
+  unsigned int soundIntensity;
+  bool touchPressed;
+  int light;
+};
+
+/**
+ * Light thresholds
+ */
+struct stLightValues {
+  int maxWhite;
+  int minWhite;
+  int maxGrey;
+  int minGrey;
+  int maxBlack;
+  int minBlack;
+};
+
+/**
+ * Global variables
+ */
+stBot bot;
+stSensorData sensorData;
+stLightValues lightValues;
+
+/**
+ * Setup global variables
+ */
+void setup(){
+  bot.action = ACT_WALK;
+  bot.power = 80;
+  bot.nextReadDelay = 30;         // ms
+  bot.avoidObstacleDistance = 30; // cm
+  bot.turnBackRotation = 720;     // degrees
+  bot.status = ON;                // ON | OFF
+  // light
+  lightValues.maxWhite = 100;
+  lightValues.minWhite = 46;
+  lightValues.maxGrey  = 45;
+  lightValues.minGrey  = 26;
+  lightValues.maxBlack = 25;
+  lightValues.minBlack = 0;
+  // sensors
+  SetSensorTouch(TOUCH_PORT);
+  SetSensorSound(SOUND_PORT);
+  SetSensorLight(LIGHT_PORT);
+  SetSensorLowspeed(SONAR_PORT);
+}
+
+/**
+ * Returns true if the sensor detected grey
+ */
+bool detectGrey(){
+  return detectLight(lightValues.greyMin, lightVaules.greyMax);
+}
+
+/**
+ * Returns true if the sensor detected white
+ */
+bool detectWhite(){
+  return detectLight(lightValues.whiteMin, lightVaules.whiteMax);
+}
+
+/**
+ * Returns true if the sensor detected black
+ */
+bool detectBlack(){
+  return detectLight(lightValues.blackMin, lightVaules.blackMax);
+}
+
+/**
+ * Returns true if the light sensor detected something in the range
+ */
+bool detectLight(int min, int max){
+  sensorData.light = SensorValue(LIGHT_PORT);
+  return (sensorData.light > min && sensorData.light < max);
+}
+
+
+/*  Walking forward
+ *  if it reads grey
+ *  back a little
+ *  turn left or right until grey again
+ *  start following the line
+ *
+ *    Forward
+ *      if it reads white
+ *        Calcultate the time ellapsed (the bigger the time interval, more strait you are)
+ *        Turn RIGHT proportionally to the time ellapsed
+ *      else if it reads black
+ *        Calcultate the time ellapsed (the bigger the time interval, more strait you are)
+ *        Turn LEFT proportionally to the time ellapsed
+ *      else if it is on the edge (reads "grey")
+ *        Store timestamp
+ *        Move forward
+ *      end
+ */
+task lightTask(){
+  int pwrB;
+  int pwrC;
+  while(bot.status == ON){
+    if(bot.action == ACT_WALK){
+      if(detectGrey()){
+        RotateMotor(OUT_BC, bot.power, -360);
+        OnFwd(OUT_B, bot.power);
+        OnRev(OUT_C, bot.power);
+        while(MotorRotationCount(o1) < 720 || !detectGrey()) { /*nop*/ }
+        CoastEx(OUT_BC, RESET_ALL);
+        bot.action = ACT_FOLLOW;
+      }
+    } else if(bot.action == ACT_FOLLOW) {
+      pwrB = bot.power;
+      pwrC = bot.power;
+      if(detectWhite()){
+        pwrB = bot.power / 2;
+      } else if(detectBlack){
+        pwrC = bot.power / 2;
+      }
+      OnFwd(OUT_B, pwrB);
+      OnFwd(OUT_C, pwrC);
+    }
+  }
+}
+
+/**
+ * Tries to detect a sound, not used right now
+ */
+task soundTask(){
+  while(bot.status == ON){
+    Wait(bot.nextReadDelay);
+    sensorData.soundIntensity = SensorValue(SOUND_PORT);
+  }
+}
+
+/**
+ * Puts the robot to walk forward
+ */
+task walkTask(){
+  bot.action = ACT_WALK;
+  OnFwdSync(OUT_BC, bot.power, 0);
+}
+
+/**
+ * Rotates both motors in reverse directions at the same time
+ */
+task turnBackTask(){
+  bot.action = ACT_REV_SONAR;
+  byte o1 = OUT_B;
+  byte o2 = OUT_C;
+  if(Random(10) > 5){
+    o1 = OUT_C;
+    o2 = OUT_B;
+  }
+  bot.turnBackRotation = 360 + Random(720);
+  CoastEx(OUT_BC, RESET_ALL);
+  OnFwd(o1, bot.power);
+  OnRev(o2, bot.power);
+  while(MotorRotationCount(o1) < bot.turnBackRotation) {
+    // nop
+  }
+  CoastEx(o1, RESET_ALL);
+  CoastEx(o2, RESET_ALL);
+  while(abs(GetOutput(OUT_B, ActualSpeedField)) > 5 && abs(GetOutput(OUT_C, ActualSpeedField)) > 5 ){
+    // nop
+  }
+  StartTask(walkTask);
+}
+
+/**
+ * Controls the motor speed (power)
+ */
+task speedTask(){
+  while(bot.status == ON){
+    sensorData.button = getchar();
+    if (sensorData.button == BTNRIGHT && bot.power < 100) {
+      bot.power += PWR_STEP;
+    }
+    if (sensorData.button == BTNLEFT && bot.power > 0) {
+      bot.power -= PWR_STEP;
+    }
+  }
+}
+
+/**
+ * It the bot hits an obstacle, then reverse run, turn back and forward run
+ */
+task bumperTask(){
+  while(bot.status == ON){
+    sensorData.touchPressed = SensorBoolean(TOUCH_PORT);
+    if (sensorData.touchPressed) {
+      if(bot.action == ACT_WALK) {
+        bot.action = ACT_REV_BUMP;
+        CoastEx(OUT_BC, RESET_ALL);
+        RotateMotor(OUT_BC, bot.power, -360);
+        StartTask(turnBackTask);
+      } else if(bot.action == ACT_FOLLOW){
+        StartTask(walkTask);
+      }
+    }
+  }
+}
+
+/**
+ * If the bot detects a wall, then turn back and forward run
+ */
+task sonarTask(){
+  while(bot.status == ON){
+    Wait(bot.nextReadDelay);
+    sensorData.distanceCm = SensorUS(SONAR_PORT);
+    if (sensorData.distanceCm <= bot.avoidObstacleDistance && bot.action == ACT_WALK){
+      StartTask(turnBackTask);
+    }
+  }
+}
+
+/**
+ * Main task
+ */
+task main(){
+  setup();
+  Precedes(walkTask, speedTask, sonarTask, bumperTask, lightTask, debugTask);
+}
+
+/**
+ * Debugs some information in the screen
+ */
+task debugTask(){
+  while(bot.status == ON){
+    Wait(50);
+    string msg = "";
+    // sound intensity
+    msg = FormatNum("Sound = %03d", sensorData.soundIntensity);
+    TextOut(0, LCD_LINE1, msg);
+    // distance
+    msg = FormatNum("Distance = %03d", sensorData.distanceCm);
+    TextOut(0, LCD_LINE2, msg);
+    // motor power
+    msg = FormatNum("Speed = %03d", bot.power);
+    TextOut(0, LCD_LINE3, msg);
+    // is touch pressed ?
+    msg = FormatNum("Bumper = %d", sensorData.touchPressed);
+    TextOut(0, LCD_LINE4, msg);
+    // light intensity
+    msg = FormatNum("Light = %d", sensorData.light);
+    TextOut(0, LCD_LINE5, msg);
+  }
+}
+
