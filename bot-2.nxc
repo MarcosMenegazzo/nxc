@@ -70,54 +70,96 @@ stLightValues lightValues;
  */
 void setup(){
   bot.action = ACT_WALK;
-  bot.power = 80;
+  bot.power = 70;
   bot.nextReadDelay = 30;         // ms
   bot.avoidObstacleDistance = 30; // cm
   bot.turnBackRotation = 720;     // degrees
   bot.status = ON;                // ON | OFF
   // light
   lightValues.maxWhite = 100;
-  lightValues.minWhite = 46;
-  lightValues.maxGrey  = 45;
-  lightValues.minGrey  = 26;
-  lightValues.maxBlack = 25;
+  lightValues.minWhite = 52;
+  lightValues.maxGrey  = 51;
+  lightValues.minGrey  = 41;
+  lightValues.maxBlack = 40;
   lightValues.minBlack = 0;
   // sensors
   SetSensorTouch(TOUCH_PORT);
   SetSensorSound(SOUND_PORT);
   SetSensorLight(LIGHT_PORT);
   SetSensorLowspeed(SONAR_PORT);
+  // collect light values to follow line
 }
 
 /**
- * Returns true if the sensor detected grey
+ * Debugs some information in the screen
  */
-bool detectGrey(){
-  return detectLight(lightValues.greyMin, lightVaules.greyMax);
+task debugTask(){
+  while(bot.status == ON){
+    Wait(50);
+    string msg = "";
+    // sound intensity
+    msg = FormatNum("Sound = %03d", sensorData.soundIntensity);
+    TextOut(0, LCD_LINE1, msg);
+    // distance
+    msg = FormatNum("Distance = %03d", sensorData.distanceCm);
+    TextOut(0, LCD_LINE2, msg);
+    // motor power
+    msg = FormatNum("Speed = %03d", bot.power);
+    TextOut(0, LCD_LINE3, msg);
+    // is touch pressed ?
+    msg = FormatNum("Bumper = %d", sensorData.touchPressed);
+    TextOut(0, LCD_LINE4, msg);
+    // light intensity
+    msg = FormatNum("Light = %d", sensorData.light);
+    TextOut(0, LCD_LINE5, msg);
+  }
 }
 
 /**
- * Returns true if the sensor detected white
+ * Allows a variable to be increased or decreased by the control buttons
  */
-bool detectWhite(){
-  return detectLight(lightValues.whiteMin, lightVaules.whiteMax);
-}
-
-/**
- * Returns true if the sensor detected black
- */
-bool detectBlack(){
-  return detectLight(lightValues.blackMin, lightVaules.blackMax);
+int controlValue(int initialValue, int minValue, int maxValue, int step){
+  int value = initialValue;
+  sensorData.button = getchar();
+  if (sensorData.button == BTNRIGHT && initialValue < maxValue) {
+    value += step;
+  }
+  if (sensorData.button == BTNLEFT && initialValue > minValue) {
+    value -= step;
+  }
+  return value;
 }
 
 /**
  * Returns true if the light sensor detected something in the range
  */
 bool detectLight(int min, int max){
+  bool detected;
   sensorData.light = SensorValue(LIGHT_PORT);
-  return (sensorData.light > min && sensorData.light < max);
+  detected = (sensorData.light > min && sensorData.light < max);
+  return detected;
 }
 
+/**
+ * Returns true if the sensor detected grey
+ */
+bool detectGrey(){
+  return detectLight(lightValues.minGrey, lightValues.maxGrey);
+}
+
+/**
+ * Returns true if the sensor detected white
+ */
+bool detectWhite(){
+  return detectLight(lightValues.minWhite, lightValues.maxWhite);
+}
+
+/**
+ * Returns true if the sensor detected black
+ */
+bool detectBlack(){
+  return detectLight(lightValues.minBlack, lightValues.maxBlack);
+}
 
 /*  Walking forward
  *  if it reads grey
@@ -146,7 +188,7 @@ task lightTask(){
         RotateMotor(OUT_BC, bot.power, -360);
         OnFwd(OUT_B, bot.power);
         OnRev(OUT_C, bot.power);
-        while(MotorRotationCount(o1) < 720 || !detectGrey()) { /*nop*/ }
+        while(MotorRotationCount(OUT_B) < 720 || !detectGrey()) { /*nop*/ }
         CoastEx(OUT_BC, RESET_ALL);
         bot.action = ACT_FOLLOW;
       }
@@ -154,9 +196,9 @@ task lightTask(){
       pwrB = bot.power;
       pwrC = bot.power;
       if(detectWhite()){
-        pwrB = bot.power / 2;
-      } else if(detectBlack){
-        pwrC = bot.power / 2;
+        pwrB = 0;
+      } else if(detectBlack()){
+        pwrC = 0;
       }
       OnFwd(OUT_B, pwrB);
       OnFwd(OUT_C, pwrC);
@@ -212,13 +254,12 @@ task turnBackTask(){
  * Controls the motor speed (power)
  */
 task speedTask(){
+  int power;
   while(bot.status == ON){
-    sensorData.button = getchar();
-    if (sensorData.button == BTNRIGHT && bot.power < 100) {
-      bot.power += PWR_STEP;
-    }
-    if (sensorData.button == BTNLEFT && bot.power > 0) {
-      bot.power -= PWR_STEP;
+    power = controlValue(bot.power, 0, 100, PWR_STEP);
+    if(power != bot.power){
+      bot.power = power;
+      StartTask(walkTask);
     }
   }
 }
@@ -261,30 +302,5 @@ task sonarTask(){
 task main(){
   setup();
   Precedes(walkTask, speedTask, sonarTask, bumperTask, lightTask, debugTask);
-}
-
-/**
- * Debugs some information in the screen
- */
-task debugTask(){
-  while(bot.status == ON){
-    Wait(50);
-    string msg = "";
-    // sound intensity
-    msg = FormatNum("Sound = %03d", sensorData.soundIntensity);
-    TextOut(0, LCD_LINE1, msg);
-    // distance
-    msg = FormatNum("Distance = %03d", sensorData.distanceCm);
-    TextOut(0, LCD_LINE2, msg);
-    // motor power
-    msg = FormatNum("Speed = %03d", bot.power);
-    TextOut(0, LCD_LINE3, msg);
-    // is touch pressed ?
-    msg = FormatNum("Bumper = %d", sensorData.touchPressed);
-    TextOut(0, LCD_LINE4, msg);
-    // light intensity
-    msg = FormatNum("Light = %d", sensorData.light);
-    TextOut(0, LCD_LINE5, msg);
-  }
 }
 
