@@ -77,10 +77,10 @@ void setup(){
   bot.status = ON;                // ON | OFF
   // light
   lightValues.maxWhite = 100;
-  lightValues.minWhite = 52;
-  lightValues.maxGrey  = 51;
-  lightValues.minGrey  = 41;
-  lightValues.maxBlack = 40;
+  lightValues.minWhite = 35;
+  lightValues.maxGrey  = 34;
+  lightValues.minGrey  = 21;
+  lightValues.maxBlack = 20;
   lightValues.minBlack = 0;
   // sensors
   SetSensorTouch(TOUCH_PORT);
@@ -183,22 +183,24 @@ task lightTask(){
   int pwrB;
   int pwrC;
   while(bot.status == ON){
+    detectLight(0, 255);
     if(bot.action == ACT_WALK){
-      if(detectGrey()){
-        RotateMotor(OUT_BC, bot.power, -360);
-        OnFwd(OUT_B, bot.power);
-        OnRev(OUT_C, bot.power);
-        while(MotorRotationCount(OUT_B) < 720 || !detectGrey()) { /*nop*/ }
-        CoastEx(OUT_BC, RESET_ALL);
+      if(detectBlack()){
         bot.action = ACT_FOLLOW;
       }
     } else if(bot.action == ACT_FOLLOW) {
-      pwrB = bot.power;
-      pwrC = bot.power;
       if(detectWhite()){
-        pwrB = 0;
+        pwrB = bot.power / 2;
+        pwrC = bot.power;
+        TextOut(0, LCD_LINE6, "White!");
       } else if(detectBlack()){
-        pwrC = 0;
+        pwrB = bot.power;
+        pwrC = bot.power / 2;
+        TextOut(0, LCD_LINE6, "Black!");
+      } else if(detectGrey()){
+        pwrB = bot.power;
+        pwrC = bot.power;
+        TextOut(0, LCD_LINE6, "Grey!");
       }
       OnFwd(OUT_B, pwrB);
       OnFwd(OUT_C, pwrC);
